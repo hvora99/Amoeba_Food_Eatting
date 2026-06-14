@@ -198,12 +198,14 @@
     granules:[],                   // cytoplasm specks
     nutrients:[],                  // released nutrient dots
     seeds:[Math.random()*9, Math.random()*9, Math.random()*9, Math.random()*9],
-    fieldSat:[]
+    fieldSat:[],
+    splitCx:0, splitCy:0, splitAng:0, splitSep:0
   };
-  for(let i=0;i<6;i++){
-    am.fieldSat.push({a:Math.random()*TAU, d:0.45+Math.random()*0.2, s:0.05+Math.random()*0.04,
-      sp:(Math.random()-0.5)*0.12, w:0.4+Math.random()*0.5, ph:Math.random()*TAU});
+  for(let i=0;i<10;i++){
+    am.fieldSat.push({a:Math.random()*TAU, d:0.34+Math.random()*0.46, s:0.05+Math.random()*0.085,
+      sp:(Math.random()-0.5)*0.18, w:0.35+Math.random()*0.7, ph:Math.random()*TAU});
   }
+  let ghosts=[];   // drifting daughter cells produced by fission
   for(let i=0;i<14;i++){
     const a=Math.random()*TAU, rr=Math.random()*0.72;
     am.granules.push({a, rr, s:1.6+Math.random()*2.4, ph:Math.random()*TAU});
@@ -214,7 +216,7 @@
   const vac={active:false,x:0,y:0,r:0,fill:0,color:0,residue:false};
 
   // ---- state machine ----
-  const STAGES=['idle','moving','ingestion','digestion','absorption','assimilation','egestion'];
+  const STAGES=['idle','moving','ingestion','digestion','absorption','assimilation','egestion','division'];
   let stage='idle';
   let stageT=0;             // 0..1 progress where applicable
   let engulf=0;             // ingestion progress
@@ -226,7 +228,7 @@
   let poreOpen=0;           // egestion membrane pore
   let speed=1;
   // base durations (seconds at 1x)
-  const DUR={ingestion:10.5, digestion:4.2, absorption:3.0, assimilation:2.6, egestion:3.6};
+  const DUR={ingestion:10.5, digestion:4.2, absorption:3.0, assimilation:2.6, egestion:3.6, division:5.5};
 
   const COPY={
     idle:['Ready','Drop a food particle anywhere in the dish to begin.'],
@@ -235,10 +237,11 @@
     digestion:['Digestion','Lysosomes fuse with the vacuole. Enzymes break the trapped food down into small soluble nutrients.'],
     absorption:['Absorption','Digested nutrients pass out of the vacuole and diffuse into the surrounding cytoplasm.'],
     assimilation:['Assimilation','The cell uses the absorbed nutrients for energy, growth and repair — the body firms and brightens.'],
-    egestion:['Egestion','Undigested residue is carried to the surface and expelled as the membrane opens, then reseals.']
+    egestion:['Egestion','Undigested residue is carried to the surface and expelled as the membrane opens, then reseals.'],
+    division:['Binary fission','Having fed and grown, the amoeba reproduces: it pinches in the middle and splits into two daughter cells.']
   };
   const RAIL=[['01','Ingestion','ingestion'],['02','Digestion','digestion'],['03','Absorption','absorption'],
-              ['04','Assimilation','assimilation'],['05','Egestion','egestion']];
+              ['04','Assimilation','assimilation'],['05','Egestion','egestion'],['06','Fission','division']];
   const rail=document.getElementById('rail');
   RAIL.forEach(([n,l,key])=>{
     const d=document.createElement('div');d.className='step';d.dataset.key=key;
@@ -276,7 +279,8 @@
 
   function reset(){
     stage='idle';stageT=0;engulf=0;pulse=0;poreOpen=0;
-    food=null;vac.active=false;am.nutrients.length=0;am.R=96;am.ingDf=9999;
+    food=null;vac.active=false;am.nutrients.length=0;am.R=96;am.ingDf=9999;am.splitSep=0;
+    ghosts=[];
     am.cx=W*0.5;am.cy=H*0.52;started=false;
     hintEl.style.opacity=1;hintEl.textContent='Click in the dish to drop food';
     setUI();
@@ -293,9 +297,25 @@
   // and rejoins past, exactly like water around an obstacle. No arms — one continuous edge.
   function cellBlobs(t){
     const R=am.R*(1+pulse), blobs=[];
-    blobs.push({x:am.cx,y:am.cy,s:R*R*0.86,neg:false});
-    for(const st of am.fieldSat){                       // gentle organic lumps on the surface
-      const a=st.a+t*st.sp, d=(st.d+0.05*Math.sin(t*st.w+st.ph))*R;
+    // ---- binary fission: two daughters pinch apart from the parent body ----
+    if(stage==='division'){
+      const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep;
+      const centers=[{x:am.splitCx-ca*s,y:am.splitCy-sa*s},{x:am.splitCx+ca*s,y:am.splitCy+sa*s}];
+      for(const c of centers){
+        blobs.push({x:c.x,y:c.y,s:R*R*0.64,neg:false});
+        for(const st of am.fieldSat){
+          const a=st.a+t*st.sp, d=(st.d*0.52+0.04*Math.sin(t*st.w+st.ph))*R;
+          blobs.push({x:c.x+Math.cos(a)*d,y:c.y+Math.sin(a)*d,s:R*R*st.s*0.45,neg:false});
+        }
+      }
+      // a contractile furrow pinches the neck so the cells separate cleanly
+      const pinch=smooth(0.28,0.7,stageT);
+      blobs.push({x:am.splitCx,y:am.splitCy,s:R*R*0.62*pinch,neg:true});
+      return blobs;
+    }
+    blobs.push({x:am.cx,y:am.cy,s:R*R*0.78,neg:false});
+    for(const st of am.fieldSat){                       // irregular, shifting lumps on the surface
+      const a=st.a+t*st.sp, d=(st.d+0.08*Math.sin(t*st.w+st.ph))*R;
       blobs.push({x:am.cx+Math.cos(a)*d,y:am.cy+Math.sin(a)*d,s:R*R*st.s,neg:false});
     }
     if(stage==='moving'){
@@ -321,8 +341,8 @@
     return v;
   }
   // marching squares -> a Path2D of the iso-contour (handles parting, holes, rejoining)
-  function buildCellPath(t){
-    const blobs=cellBlobs(t);
+  function buildCellPath(t){ return buildBlobPath(cellBlobs(t)); }
+  function buildBlobPath(blobs){
     let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;
     for(const b of blobs){ if(b.neg)continue; const rad=Math.sqrt(Math.max(b.s,1))+44;
       mnx=Math.min(mnx,b.x-rad);mxx=Math.max(mxx,b.x+rad);mny=Math.min(mny,b.y-rad);mxy=Math.max(mxy,b.y+rad);}
@@ -371,7 +391,13 @@
         used[nx]=true; const ns=segs[nx];
         if(key(ns[0],ns[1])===key(cx2,cy2)){ cx2=ns[2]; cy2=ns[3]; } else { cx2=ns[0]; cy2=ns[1]; }
       }
-      if(loop.length>2){ path.moveTo(loop[0][0],loop[0][1]); for(let p=1;p<loop.length;p++)path.lineTo(loop[p][0],loop[p][1]); path.closePath(); }
+      if(loop.length>6){
+        let lx=1e9,ly=1e9,hx=-1e9,hy=-1e9;
+        for(const p of loop){ if(p[0]<lx)lx=p[0]; if(p[0]>hx)hx=p[0]; if(p[1]<ly)ly=p[1]; if(p[1]>hy)hy=p[1]; }
+        if(Math.max(hx-lx,hy-ly)>16){
+          path.moveTo(loop[0][0],loop[0][1]); for(let p=1;p<loop.length;p++)path.lineTo(loop[p][0],loop[p][1]); path.closePath();
+        }
+      }
     }
     return path;
   }
@@ -386,6 +412,12 @@
     am.nucleus.ox=lerp(am.nucleus.ox,-18+Math.sin(now*0.0006)*6,0.05);
     am.nucleus.oy=lerp(am.nucleus.oy,14+Math.cos(now*0.0005)*5,0.05);
     pulse*=0.94;
+
+    // drifting daughter cells (from fission) ease to a gentle wander
+    for(const gh of ghosts){
+      gh.x+=gh.vx*k; gh.y+=gh.vy*k; gh.vx*=0.965; gh.vy*=0.965;
+      gh.x=clamp(gh.x,gh.R*0.7,W-gh.R*0.7); gh.y=clamp(gh.y,gh.R*0.7,H-gh.R*0.7);
+    }
 
     if(stage==='moving'){
       const dx=food.x-am.cx, dy=food.y-am.cy;
@@ -441,7 +473,7 @@
       stageT+=k/DUR.assimilation;
       updateNutrients(k,false);
       pulse=0.035*Math.sin(stageT*Math.PI*3)*(1-stageT*0.4); // firm/brighten beats
-      am.R=lerp(am.R,99,0.02);
+      am.R=lerp(am.R,106,0.03);
       if(stageT>=1){
         stage='egestion';stageT=0;poreOpen=0;
         egestAngle=foodAngle+Math.PI+(Math.random()-0.5)*0.8; // expel away from intake
@@ -464,9 +496,28 @@
         vac.fill=lerp(vac.fill,0,0.08);
       }
       if(stageT>=1){
-        vac.active=false;am.nutrients.length=0;am.R=96;
+        vac.active=false;am.nutrients.length=0;
+        // grown after feeding -> reproduce by binary fission
+        am.splitCx=am.cx; am.splitCy=am.cy; am.splitSep=0;
+        am.splitAng=Math.random()*TAU;
+        stage='division';stageT=0;
+        hintEl.style.opacity=0;
+        setUI();
+      }
+    }
+    else if(stage==='division'){
+      stageT+=k/DUR.division;
+      am.R=lerp(106,96,clamp(stageT,0,1));            // parent swelled, daughters settle to normal
+      am.splitSep=am.R*1.12*easeInOut(clamp(stageT,0,1)); // pull apart until the neck snaps
+      if(stageT>=1){
+        const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep;
+        // one daughter becomes the active amoeba; the other drifts off as a new cell
+        am.cx=am.splitCx-ca*s; am.cy=am.splitCy-sa*s;
+        if(ghosts.length>=4) ghosts.shift();
+        ghosts.push({x:am.splitCx+ca*s, y:am.splitCy+sa*s, vx:ca*8, vy:sa*8,
+          R:96, sat:am.fieldSat.map(o=>({...o, ph:Math.random()*TAU})), no:Math.random()*9});
         stage='idle';stageT=0;
-        hintEl.style.opacity=1;hintEl.textContent='Cycle complete — drop more food';
+        hintEl.style.opacity=1;hintEl.textContent='It divided! Drop more food';
         setUI();
       }
     }
@@ -498,6 +549,9 @@
 
     // faint specimen specks in the field
     drawField(t);
+
+    // drifting daughter cells from previous fissions
+    for(const gh of ghosts) drawGhost(gh,t);
 
     const bright=stage==='assimilation'?0.12:0;
     const cell=buildCellPath(t);                 // one fluid membrane (handles flow-around)
@@ -589,17 +643,41 @@
     }
   }
 
-  function drawNucleus(t){
-    const nx=am.cx+am.nucleus.ox, ny=am.cy+am.nucleus.oy;
-    const R=20+Math.sin(t*0.7)*1.2;
+  function drawNucleusAt(nx,ny,t,rad){
+    const R=(rad||20)+Math.sin(t*0.7)*1.2;
     const g=ctx.createRadialGradient(nx-4,ny-4,2,nx,ny,R);
     g.addColorStop(0,'#e07a64');g.addColorStop(1,'#b14736');
     ctx.beginPath();ctx.arc(nx,ny,R,0,TAU);ctx.fillStyle=g;ctx.fill();
-    // pale ring (the donut look)
-    ctx.beginPath();ctx.arc(nx,ny,R*0.5,0,TAU);
-    ctx.fillStyle='rgba(247,222,210,.9)';ctx.fill();
-    ctx.beginPath();ctx.arc(nx,ny,R*0.24,0,TAU);
-    ctx.fillStyle='#b14736';ctx.fill();
+    ctx.beginPath();ctx.arc(nx,ny,R*0.5,0,TAU);ctx.fillStyle='rgba(247,222,210,.9)';ctx.fill();
+    ctx.beginPath();ctx.arc(nx,ny,R*0.24,0,TAU);ctx.fillStyle='#b14736';ctx.fill();
+  }
+  function drawNucleus(t){
+    if(stage==='division'){
+      const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep, rr=lerp(20,17,clamp(stageT,0,1));
+      drawNucleusAt(am.splitCx-ca*s+am.nucleus.ox*0.3, am.splitCy-sa*s+am.nucleus.oy*0.3, t, rr);
+      drawNucleusAt(am.splitCx+ca*s-am.nucleus.ox*0.3, am.splitCy+sa*s-am.nucleus.oy*0.3, t, rr);
+    } else {
+      drawNucleusAt(am.cx+am.nucleus.ox, am.cy+am.nucleus.oy, t);
+    }
+  }
+  // a drifting daughter cell rendered with the same fluid membrane
+  function drawGhost(gh,t){
+    const R=gh.R, blobs=[{x:gh.x,y:gh.y,s:R*R*0.78,neg:false}];
+    for(const st of gh.sat){const a=st.a+t*st.sp, d=(st.d+0.08*Math.sin(t*st.w+st.ph))*R;
+      blobs.push({x:gh.x+Math.cos(a)*d,y:gh.y+Math.sin(a)*d,s:R*R*st.s,neg:false});}
+    const p=buildBlobPath(blobs);
+    ctx.lineJoin='round';ctx.lineCap='round';
+    ctx.lineWidth=5;ctx.strokeStyle='rgba(184,124,74,.9)';ctx.stroke(p);
+    ctx.fillStyle='#f1cb9c';ctx.fill(p,'evenodd');
+    ctx.save();ctx.clip(p,'evenodd');
+    const g=ctx.createRadialGradient(gh.x-R*0.35,gh.y-R*0.35,R*0.15,gh.x,gh.y,R*1.2);
+    g.addColorStop(0,'rgba(255,246,227,.5)');g.addColorStop(0.62,'rgba(255,246,227,0)');g.addColorStop(1,'rgba(150,95,50,.3)');
+    ctx.fillStyle=g;ctx.fillRect(gh.x-R*2,gh.y-R*2,R*4,R*4);
+    ctx.restore();
+    ctx.lineWidth=1.2;ctx.strokeStyle='rgba(255,255,255,.15)';ctx.stroke(p);
+    ctx.save();ctx.clip(p,'evenodd');
+    drawNucleusAt(gh.x+am.nucleus.ox*0.4, gh.y+am.nucleus.oy*0.4, t, 18);
+    ctx.restore();
   }
 
   function drawField(t){
