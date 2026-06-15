@@ -202,8 +202,8 @@
     splitCx:0, splitCy:0, splitAng:0, splitSep:0
   };
   for(let i=0;i<10;i++){
-    am.fieldSat.push({a:Math.random()*TAU, d:0.34+Math.random()*0.46, s:0.05+Math.random()*0.085,
-      sp:(Math.random()-0.5)*0.18, w:0.35+Math.random()*0.7, ph:Math.random()*TAU});
+    am.fieldSat.push({a:Math.random()*TAU, d:0.26+Math.random()*0.32, s:0.045+Math.random()*0.05,
+      sp:(Math.random()-0.5)*0.16, w:0.35+Math.random()*0.7, ph:Math.random()*TAU});
   }
   let ghosts=[];   // drifting daughter cells produced by fission
   for(let i=0;i<14;i++){
@@ -228,7 +228,7 @@
   let poreOpen=0;           // egestion membrane pore
   let speed=1;
   // base durations (seconds at 1x)
-  const DUR={ingestion:10.5, digestion:4.2, absorption:3.0, assimilation:2.6, egestion:3.6, division:5.5};
+  const DUR={ingestion:13.5, digestion:4.2, absorption:3.0, assimilation:2.6, egestion:3.6, division:5.5};
 
   const COPY={
     idle:['Ready','Drop a food particle anywhere in the dish to begin.'],
@@ -302,30 +302,36 @@
       const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep;
       const centers=[{x:am.splitCx-ca*s,y:am.splitCy-sa*s},{x:am.splitCx+ca*s,y:am.splitCy+sa*s}];
       for(const c of centers){
-        blobs.push({x:c.x,y:c.y,s:R*R*0.64,neg:false});
+        blobs.push({x:c.x,y:c.y,s:R*R*0.66,neg:false});
         for(const st of am.fieldSat){
-          const a=st.a+t*st.sp, d=(st.d*0.52+0.04*Math.sin(t*st.w+st.ph))*R;
-          blobs.push({x:c.x+Math.cos(a)*d,y:c.y+Math.sin(a)*d,s:R*R*st.s*0.45,neg:false});
+          const a=st.a+t*st.sp, d=(st.d*0.42+0.03*Math.sin(t*st.w+st.ph))*R;
+          blobs.push({x:c.x+Math.cos(a)*d,y:c.y+Math.sin(a)*d,s:R*R*st.s*0.32,neg:false});
         }
       }
-      // a contractile furrow pinches the neck so the cells separate cleanly
-      const pinch=smooth(0.28,0.7,stageT);
-      blobs.push({x:am.splitCx,y:am.splitCy,s:R*R*0.62*pinch,neg:true});
+      // a small, LOCAL furrow that engages late — cuts the thin neck without eating the daughters
+      const pinch=smooth(0.45,0.85,stageT);
+      if(pinch>0) blobs.push({x:am.splitCx,y:am.splitCy,s:R*R*0.15*pinch,neg:true});
       return blobs;
     }
-    blobs.push({x:am.cx,y:am.cy,s:R*R*0.78,neg:false});
+    blobs.push({x:am.cx,y:am.cy,s:R*R*0.92,neg:false});
     for(const st of am.fieldSat){                       // irregular, shifting lumps on the surface
-      const a=st.a+t*st.sp, d=(st.d+0.08*Math.sin(t*st.w+st.ph))*R;
+      const a=st.a+t*st.sp, d=(st.d+0.06*Math.sin(t*st.w+st.ph))*R;
       blobs.push({x:am.cx+Math.cos(a)*d,y:am.cy+Math.sin(a)*d,s:R*R*st.s,neg:false});
     }
     if(stage==='moving'){
       blobs.push({x:am.cx+Math.cos(am.moveAngle)*R*0.55,y:am.cy+Math.sin(am.moveAngle)*R*0.55,s:R*R*0.20,neg:false});
     }
     if(stage==='ingestion' && food){
-      blobs.push({x:am.cx+Math.cos(foodAngle)*R*0.62,y:am.cy+Math.sin(foodAngle)*R*0.62,s:R*R*0.22,neg:false}); // forward flow
-      // the food is a stone the fluid flows around: strong while it's near the surface so the
-      // membrane wraps around it, fading only once it's deep inside so the void seals.
-      const stoneK=clamp((am.ingDf-am.R*0.18)/(am.R*0.55),0,1);
+      // forward flow bridges the body toward the food
+      blobs.push({x:am.cx+Math.cos(foodAngle)*R*0.60,y:am.cy+Math.sin(foodAngle)*R*0.60,s:R*R*0.20,neg:false});
+      // two pseudopodia stream around the sides of the food as the cell reaches it
+      const wrap=smooth(am.R*1.0,am.R*0.42,am.ingDf);
+      if(wrap>0){
+        const px=-Math.sin(foodAngle), py=Math.cos(foodAngle), side=am.R*0.44;
+        for(const sgn of [1,-1]) blobs.push({x:food.x+px*side*sgn,y:food.y+py*side*sgn,s:R*R*0.18*wrap,neg:false});
+      }
+      // the food is a stone the fluid flows around, fading only once it is deep inside
+      const stoneK=clamp((am.ingDf-am.R*0.16)/(am.R*0.52),0,1);
       blobs.push({x:food.x,y:food.y,s:R*R*0.34*stoneK,neg:true});
     }
     if(stage==='egestion'){
@@ -391,10 +397,10 @@
         used[nx]=true; const ns=segs[nx];
         if(key(ns[0],ns[1])===key(cx2,cy2)){ cx2=ns[2]; cy2=ns[3]; } else { cx2=ns[0]; cy2=ns[1]; }
       }
-      if(loop.length>6){
+      if(loop.length>44){
         let lx=1e9,ly=1e9,hx=-1e9,hy=-1e9;
         for(const p of loop){ if(p[0]<lx)lx=p[0]; if(p[0]>hx)hx=p[0]; if(p[1]<ly)ly=p[1]; if(p[1]>hy)hy=p[1]; }
-        if(Math.max(hx-lx,hy-ly)>16){
+        if(Math.max(hx-lx,hy-ly)>40){
           path.moveTo(loop[0][0],loop[0][1]); for(let p=1;p<loop.length;p++)path.lineTo(loop[p][0],loop[p][1]); path.closePath();
         }
       }
@@ -508,7 +514,7 @@
     else if(stage==='division'){
       stageT+=k/DUR.division;
       am.R=lerp(106,96,clamp(stageT,0,1));            // parent swelled, daughters settle to normal
-      am.splitSep=am.R*1.12*easeInOut(clamp(stageT,0,1)); // pull apart until the neck snaps
+      am.splitSep=am.R*(0.07+1.12*easeInOut(clamp(stageT,0,1))); // pull apart; the neck pinch snaps it
       if(stageT>=1){
         const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep;
         // one daughter becomes the active amoeba; the other drifts off as a new cell
@@ -557,25 +563,27 @@
     const cell=buildCellPath(t);                 // one fluid membrane (handles flow-around)
     const FOOD_OPEN = stage==='ingestion' && food && am.ingDf>am.R*0.20 && !vac.active; // food in the void the fluid wraps around
 
-    // rim
+    // soft outer halo (translucent membrane glow), drawn behind
     ctx.lineJoin='round'; ctx.lineCap='round';
-    ctx.lineWidth=5; ctx.strokeStyle='rgba(184,124,74,.9)'; ctx.stroke(cell);
+    ctx.lineWidth=8; ctx.strokeStyle='rgba(150,205,205,0.12)'; ctx.stroke(cell);
 
     // food sitting in the bay the fluid has parted around (drawn on the dish, surrounded)
     if(FOOD_OPEN) drawFood({x:food.x,y:food.y},false);
 
-    // body fill (flat, then soft shading) — one seamless shape
-    ctx.fillStyle=shade('#f1cb9c',bright); ctx.fill(cell,'evenodd');
+    // translucent cytoplasm — the dish shows through, like a real amoeba under the microscope
+    ctx.fillStyle=`rgba(178,214,210,${0.26+bright*0.5})`; ctx.fill(cell,'evenodd');
     ctx.save(); ctx.clip(cell,'evenodd');
-    const g=ctx.createRadialGradient(am.cx-am.R*0.35,am.cy-am.R*0.35,am.R*0.15, am.cx,am.cy,am.R*1.25);
-    g.addColorStop(0,'rgba(255,246,227,.55)');
-    g.addColorStop(0.62,'rgba(255,246,227,0)');
-    g.addColorStop(1,'rgba(150,95,50,.32)');
+    // glassy sheen: bright near the top-left, slightly deeper translucent toward the rim
+    const g=ctx.createRadialGradient(am.cx-am.R*0.4,am.cy-am.R*0.4,am.R*0.12, am.cx,am.cy,am.R*1.3);
+    g.addColorStop(0,'rgba(235,250,250,0.34)');
+    g.addColorStop(0.55,'rgba(210,240,240,0.06)');
+    g.addColorStop(1,'rgba(70,120,125,0.22)');
     ctx.fillStyle=g; ctx.fillRect(am.cx-am.R*2.2,am.cy-am.R*2.2,am.R*4.4,am.R*4.4);
     ctx.restore();
 
-    // inner sheen on the edge
-    ctx.lineWidth=1.2; ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.stroke(cell);
+    // bright glass membrane edge + faint inner highlight
+    ctx.lineWidth=2.2; ctx.strokeStyle='rgba(214,245,246,0.62)'; ctx.stroke(cell);
+    ctx.lineWidth=0.9; ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.stroke(cell);
 
     // ---- interior contents, clipped to the membrane ----
     ctx.save();
@@ -662,19 +670,19 @@
   }
   // a drifting daughter cell rendered with the same fluid membrane
   function drawGhost(gh,t){
-    const R=gh.R, blobs=[{x:gh.x,y:gh.y,s:R*R*0.78,neg:false}];
-    for(const st of gh.sat){const a=st.a+t*st.sp, d=(st.d+0.08*Math.sin(t*st.w+st.ph))*R;
+    const R=gh.R, blobs=[{x:gh.x,y:gh.y,s:R*R*0.92,neg:false}];
+    for(const st of gh.sat){const a=st.a+t*st.sp, d=(st.d+0.06*Math.sin(t*st.w+st.ph))*R;
       blobs.push({x:gh.x+Math.cos(a)*d,y:gh.y+Math.sin(a)*d,s:R*R*st.s,neg:false});}
     const p=buildBlobPath(blobs);
     ctx.lineJoin='round';ctx.lineCap='round';
-    ctx.lineWidth=5;ctx.strokeStyle='rgba(184,124,74,.9)';ctx.stroke(p);
-    ctx.fillStyle='#f1cb9c';ctx.fill(p,'evenodd');
+    ctx.lineWidth=8;ctx.strokeStyle='rgba(150,205,205,0.10)';ctx.stroke(p);
+    ctx.fillStyle='rgba(178,214,210,0.24)';ctx.fill(p,'evenodd');
     ctx.save();ctx.clip(p,'evenodd');
-    const g=ctx.createRadialGradient(gh.x-R*0.35,gh.y-R*0.35,R*0.15,gh.x,gh.y,R*1.2);
-    g.addColorStop(0,'rgba(255,246,227,.5)');g.addColorStop(0.62,'rgba(255,246,227,0)');g.addColorStop(1,'rgba(150,95,50,.3)');
+    const g=ctx.createRadialGradient(gh.x-R*0.4,gh.y-R*0.4,R*0.12,gh.x,gh.y,R*1.25);
+    g.addColorStop(0,'rgba(235,250,250,0.30)');g.addColorStop(0.55,'rgba(210,240,240,0.05)');g.addColorStop(1,'rgba(70,120,125,0.2)');
     ctx.fillStyle=g;ctx.fillRect(gh.x-R*2,gh.y-R*2,R*4,R*4);
     ctx.restore();
-    ctx.lineWidth=1.2;ctx.strokeStyle='rgba(255,255,255,.15)';ctx.stroke(p);
+    ctx.lineWidth=2;ctx.strokeStyle='rgba(214,245,246,0.55)';ctx.stroke(p);
     ctx.save();ctx.clip(p,'evenodd');
     drawNucleusAt(gh.x+am.nucleus.ox*0.4, gh.y+am.nucleus.oy*0.4, t, 18);
     ctx.restore();
