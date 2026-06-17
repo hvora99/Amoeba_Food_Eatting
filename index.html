@@ -32,10 +32,11 @@
     font-family:"Inter",system-ui,sans-serif;
     -webkit-font-smoothing:antialiased;
     min-height:100%;
-    display:flex;justify-content:center;
+    overflow-y:auto;
+    display:flex;justify-content:center;align-items:flex-start;
   }
   .wrap{
-    width:100%;max-width:1080px;
+    width:100%;max-width:1320px;
     padding:22px 20px 40px;
     display:flex;flex-direction:column;gap:16px;
   }
@@ -116,6 +117,18 @@
   button:active{transform:translateY(1px)}
   button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
   @media (max-width:560px){ .step{min-width:46%} }
+
+  /* educational notes below the lab */
+  .notes{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .note{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:16px 18px}
+  .note h3{margin:0 0 8px;font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:17px;letter-spacing:-.01em}
+  .note p{margin:0;font-size:13.5px;line-height:1.55;color:#cfe0e0}
+  .note ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px}
+  .note li{font-size:13.5px;line-height:1.5;color:#cfe0e0}
+  .note strong{color:var(--ink)}
+  .note em{color:var(--amber);font-style:italic}
+  .note .mut{color:var(--amber)}
+  @media (max-width:720px){ .notes{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -148,6 +161,28 @@
         <span id="spd">1.0×</span>
       </label>
       <button class="ghost" id="reset">Reset</button>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>🧬 Theory of Genetic Mutation</h3>
+      <p>In this simulation, mutation occurs during <strong>Binary Fission</strong>. While asexual
+      reproduction typically creates identical clones, environmental stressors or errors in DNA
+      replication can lead to phenotypic changes. Here, a <span class="mut">20% mutation rate</span>
+      simulates <em>Point Mutations</em> that alter the proteins responsible for the cell's pigment,
+      creating new colour strains.</p>
+    </div>
+    <div class="note">
+      <h3>🌟 Proud Amoeba Facts</h3>
+      <ul>
+        <li><strong>Immortality:</strong> Because they divide to reproduce, an amoeba doesn't "die" of
+        old age — it literally becomes its children!</li>
+        <li><strong>Giant Genomes:</strong> Some amoebae have 200 times more DNA than humans! They are
+        genetically far more complex than us.</li>
+        <li><strong>Brain Power:</strong> Despite having no brain, they can navigate mazes and remember
+        where food was located.</li>
+      </ul>
     </div>
   </div>
 </div>
@@ -191,7 +226,7 @@
   // ---- the cell ----
   const N=150;
   const am={
-    cx:0, cy:0, R:96,
+    cx:0, cy:0, R:104,
     moveAngle:0,
     ingDf:9999,                    // distance to food during ingestion (drives the flow)
     nucleus:{ox:-18,oy:14},        // nucleus offset from center
@@ -199,11 +234,32 @@
     nutrients:[],                  // released nutrient dots
     seeds:[Math.random()*9, Math.random()*9, Math.random()*9, Math.random()*9],
     fieldSat:[],
-    splitCx:0, splitCy:0, splitAng:0, splitSep:0
+    splitCx:0, splitCy:0, splitAng:0, splitSep:0, nucSep:0,
+    hue:174, sat:22                // pigment (base teal strain); mutates on fission
   };
-  for(let i=0;i<10;i++){
-    am.fieldSat.push({a:Math.random()*TAU, d:0.26+Math.random()*0.32, s:0.045+Math.random()*0.05,
-      sp:(Math.random()-0.5)*0.16, w:0.35+Math.random()*0.7, ph:Math.random()*TAU});
+  // colour strains a point mutation can switch the pigment to (distinct from the teal wild type)
+  const STRAINS=[120, 285, 36, 330, 205, 16];   // green, violet, amber, magenta, blue, red-orange
+  function pickStrain(){ return STRAINS[(Math.random()*STRAINS.length)|0]; }
+  function tint(hue,sat){
+    const e=Math.min(72,sat+26);
+    return {
+      halo:`hsla(${hue},${sat}%,72%,0.12)`,
+      fill:`hsla(${hue},${sat}%,78%,0.27)`,
+      edge:`hsla(${hue},${e}%,90%,0.62)`,
+      sheen0:`hsla(${hue},${sat}%,96%,0.32)`,
+      sheen1:`hsla(${hue},${sat}%,88%,0.06)`,
+      deep:`hsla(${hue},${sat}%,40%,0.22)`
+    };
+  }
+  // surface field-lumps: 4 distinct pseudopod lobes + small bumps, kept inside the body's solid
+  // core so they bulge the outline without ever detaching into fragments
+  const LOBE_SPEC=[{dmin:0.44,dmax:0.70,smin:0.11,smax:0.19,n:4},   // pseudopod lobes
+                   {dmin:0.25,dmax:0.45,smin:0.05,smax:0.08,n:3}];  // texture bumps
+  for(const g of LOBE_SPEC){
+    for(let i=0;i<g.n;i++){
+      am.fieldSat.push({a:Math.random()*TAU, d:g.dmin+Math.random()*(g.dmax-g.dmin), s:g.smin+Math.random()*(g.smax-g.smin),
+        sp:(Math.random()-0.5)*0.12, w:0.35+Math.random()*0.6, ph:Math.random()*TAU});
+    }
   }
   let ghosts=[];   // drifting daughter cells produced by fission
   for(let i=0;i<14;i++){
@@ -228,7 +284,7 @@
   let poreOpen=0;           // egestion membrane pore
   let speed=1;
   // base durations (seconds at 1x)
-  const DUR={ingestion:13.5, digestion:4.2, absorption:3.0, assimilation:2.6, egestion:3.6, division:5.5};
+  const DUR={ingestion:21, digestion:4.6, absorption:3.2, assimilation:2.8, egestion:3.8, division:7.5};
 
   const COPY={
     idle:['Ready','Drop a food particle anywhere in the dish to begin.'],
@@ -238,7 +294,7 @@
     absorption:['Absorption','Digested nutrients pass out of the vacuole and diffuse into the surrounding cytoplasm.'],
     assimilation:['Assimilation','The cell uses the absorbed nutrients for energy, growth and repair — the body firms and brightens.'],
     egestion:['Egestion','Undigested residue is carried to the surface and expelled as the membrane opens, then reseals.'],
-    division:['Binary fission','Having fed and grown, the amoeba reproduces: it pinches in the middle and splits into two daughter cells.']
+    division:['Binary fission','First the nucleus divides into two. Each new nucleus settles into its own half, then the body pinches in the middle and cuts into two daughter cells.']
   };
   const RAIL=[['01','Ingestion','ingestion'],['02','Digestion','digestion'],['03','Absorption','absorption'],
               ['04','Assimilation','assimilation'],['05','Egestion','egestion'],['06','Fission','division']];
@@ -279,7 +335,7 @@
 
   function reset(){
     stage='idle';stageT=0;engulf=0;pulse=0;poreOpen=0;
-    food=null;vac.active=false;am.nutrients.length=0;am.R=96;am.ingDf=9999;am.splitSep=0;
+    food=null;vac.active=false;am.nutrients.length=0;am.R=104;am.ingDf=9999;am.splitSep=0;am.nucSep=0;
     ghosts=[];
     am.cx=W*0.5;am.cy=H*0.52;started=false;
     hintEl.style.opacity=1;hintEl.textContent='Click in the dish to drop food';
@@ -297,19 +353,19 @@
   // and rejoins past, exactly like water around an obstacle. No arms — one continuous edge.
   function cellBlobs(t){
     const R=am.R*(1+pulse), blobs=[];
-    // ---- binary fission: two daughters pinch apart from the parent body ----
+    // ---- binary fission: nucleus divides first, THEN the body pinches into two ----
     if(stage==='division'){
       const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep;
       const centers=[{x:am.splitCx-ca*s,y:am.splitCy-sa*s},{x:am.splitCx+ca*s,y:am.splitCy+sa*s}];
       for(const c of centers){
         blobs.push({x:c.x,y:c.y,s:R*R*0.66,neg:false});
         for(const st of am.fieldSat){
-          const a=st.a+t*st.sp, d=(st.d*0.42+0.03*Math.sin(t*st.w+st.ph))*R;
-          blobs.push({x:c.x+Math.cos(a)*d,y:c.y+Math.sin(a)*d,s:R*R*st.s*0.32,neg:false});
+          const a=st.a+t*st.sp, d=(st.d*0.30+0.03*Math.sin(t*st.w+st.ph))*R;
+          blobs.push({x:c.x+Math.cos(a)*d,y:c.y+Math.sin(a)*d,s:R*R*st.s*0.22,neg:false});
         }
       }
-      // a small, LOCAL furrow that engages late — cuts the thin neck without eating the daughters
-      const pinch=smooth(0.45,0.85,stageT);
+      // a small, LOCAL furrow that engages only in the cutting phase — cuts the thin neck
+      const pinch=smooth(0.55,0.9,stageT);
       if(pinch>0) blobs.push({x:am.splitCx,y:am.splitCy,s:R*R*0.15*pinch,neg:true});
       return blobs;
     }
@@ -319,7 +375,7 @@
       blobs.push({x:am.cx+Math.cos(a)*d,y:am.cy+Math.sin(a)*d,s:R*R*st.s,neg:false});
     }
     if(stage==='moving'){
-      blobs.push({x:am.cx+Math.cos(am.moveAngle)*R*0.55,y:am.cy+Math.sin(am.moveAngle)*R*0.55,s:R*R*0.20,neg:false});
+      blobs.push({x:am.cx+Math.cos(am.moveAngle)*R*0.62,y:am.cy+Math.sin(am.moveAngle)*R*0.62,s:R*R*0.24,neg:false});
     }
     if(stage==='ingestion' && food){
       // forward flow bridges the body toward the food
@@ -350,9 +406,9 @@
   function buildCellPath(t){ return buildBlobPath(cellBlobs(t)); }
   function buildBlobPath(blobs){
     let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;
-    for(const b of blobs){ if(b.neg)continue; const rad=Math.sqrt(Math.max(b.s,1))+44;
+    for(const b of blobs){ if(b.neg)continue; const rad=Math.sqrt(Math.max(b.s,1))+88;
       mnx=Math.min(mnx,b.x-rad);mxx=Math.max(mxx,b.x+rad);mny=Math.min(mny,b.y-rad);mxy=Math.max(mxy,b.y+rad);}
-    mnx-=16;mny-=16;mxx+=16;mxy+=16;
+    mnx-=24;mny-=24;mxx+=24;mxy+=24;
     const cell=6;
     const cols=Math.max(2,Math.ceil((mxx-mnx)/cell)), rows=Math.max(2,Math.ceil((mxy-mny)/cell));
     const gw=cols+1, gv=new Float32Array(gw*(rows+1));
@@ -429,7 +485,7 @@
       const dx=food.x-am.cx, dy=food.y-am.cy;
       const dist=Math.hypot(dx,dy);
       am.moveAngle=Math.atan2(dy,dx);
-      const v=46*k;                       // slow crawl
+      const v=38*k;                       // slow crawl
       if(dist>am.R+84){
         am.cx+=Math.cos(am.moveAngle)*Math.min(v,dist-am.R-84);
         am.cy+=Math.sin(am.moveAngle)*Math.min(v,dist-am.R-84);
@@ -479,7 +535,7 @@
       stageT+=k/DUR.assimilation;
       updateNutrients(k,false);
       pulse=0.035*Math.sin(stageT*Math.PI*3)*(1-stageT*0.4); // firm/brighten beats
-      am.R=lerp(am.R,106,0.03);
+      am.R=lerp(am.R,116,0.03);
       if(stageT>=1){
         stage='egestion';stageT=0;poreOpen=0;
         egestAngle=foodAngle+Math.PI+(Math.random()-0.5)*0.8; // expel away from intake
@@ -504,7 +560,7 @@
       if(stageT>=1){
         vac.active=false;am.nutrients.length=0;
         // grown after feeding -> reproduce by binary fission
-        am.splitCx=am.cx; am.splitCy=am.cy; am.splitSep=0;
+        am.splitCx=am.cx; am.splitCy=am.cy; am.splitSep=0; am.nucSep=0;
         am.splitAng=Math.random()*TAU;
         stage='division';stageT=0;
         hintEl.style.opacity=0;
@@ -513,17 +569,40 @@
     }
     else if(stage==='division'){
       stageT+=k/DUR.division;
-      am.R=lerp(106,96,clamp(stageT,0,1));            // parent swelled, daughters settle to normal
-      am.splitSep=am.R*(0.07+1.12*easeInOut(clamp(stageT,0,1))); // pull apart; the neck pinch snaps it
+      const tt=clamp(stageT,0,1);
+      // sub-phase 1 (0 -> 0.45): nucleus divides inside a still-whole cell
+      // sub-phase 2 (0.45 -> 1): the body elongates, pinches and cuts into two
+      const p1=clamp(tt/0.45,0,1);
+      const p2=clamp((tt-0.45)/0.55,0,1);
+      const maxSep=am.R*1.12;
+      am.R=lerp(116,104,tt);
+      // nucleus separates early and leads; rides out with the daughters later
+      am.nucSep = p2<=0 ? am.R*0.52*easeInOut(p1)
+                        : lerp(am.R*0.52, maxSep, easeInOut(p2));
+      // body stays one cell through sub-phase 1 (only a slight oval), then splits in sub-phase 2
+      am.splitSep = p2<=0 ? am.R*0.14*easeInOut(p1)
+                          : lerp(am.R*0.14, maxSep, easeInOut(p2));
+      // live caption for the two sub-phases
+      phaseDesc.textContent = (tt<0.45)
+        ? 'Karyokinesis — the nucleus divides into two while the cell stays whole.'
+        : 'Cytokinesis — each nucleus takes a half; the body pinches in the middle and cuts in two.';
       if(stageT>=1){
         const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep;
         // one daughter becomes the active amoeba; the other drifts off as a new cell
         am.cx=am.splitCx-ca*s; am.cy=am.splitCy-sa*s;
         if(ghosts.length>=4) ghosts.shift();
+        // point mutation: 20% chance the new daughter switches to a different colour strain
+        const mutated = Math.random()<0.20;
+        const childHue = mutated ? pickStrain() : am.hue;
+        const childSat = mutated ? 55 : am.sat;
         ghosts.push({x:am.splitCx+ca*s, y:am.splitCy+sa*s, vx:ca*8, vy:sa*8,
-          R:96, sat:am.fieldSat.map(o=>({...o, ph:Math.random()*TAU})), no:Math.random()*9});
+          R:104, sat:am.fieldSat.map(o=>({...o, ph:Math.random()*TAU})), no:Math.random()*9,
+          hue:childHue, pig:childSat, mutated});
+        am.splitSep=0; am.nucSep=0;
         stage='idle';stageT=0;
-        hintEl.style.opacity=1;hintEl.textContent='It divided! Drop more food';
+        hintEl.style.opacity=1;
+        hintEl.textContent = mutated ? '🧬 A point mutation! A new colour strain appeared'
+                                     : 'It divided! Drop more food';
         setUI();
       }
     }
@@ -560,29 +639,31 @@
     for(const gh of ghosts) drawGhost(gh,t);
 
     const bright=stage==='assimilation'?0.12:0;
+    const TC=tint(am.hue,am.sat);                // pigment-derived colours for this cell
     const cell=buildCellPath(t);                 // one fluid membrane (handles flow-around)
     const FOOD_OPEN = stage==='ingestion' && food && am.ingDf>am.R*0.20 && !vac.active; // food in the void the fluid wraps around
 
     // soft outer halo (translucent membrane glow), drawn behind
     ctx.lineJoin='round'; ctx.lineCap='round';
-    ctx.lineWidth=8; ctx.strokeStyle='rgba(150,205,205,0.12)'; ctx.stroke(cell);
+    ctx.lineWidth=8; ctx.strokeStyle=TC.halo; ctx.stroke(cell);
 
     // food sitting in the bay the fluid has parted around (drawn on the dish, surrounded)
     if(FOOD_OPEN) drawFood({x:food.x,y:food.y},false);
 
     // translucent cytoplasm — the dish shows through, like a real amoeba under the microscope
-    ctx.fillStyle=`rgba(178,214,210,${0.26+bright*0.5})`; ctx.fill(cell,'evenodd');
+    ctx.fillStyle=TC.fill; ctx.fill(cell,'evenodd');
+    if(bright>0){ ctx.fillStyle=`hsla(${am.hue},${am.sat}%,90%,${bright})`; ctx.fill(cell,'evenodd'); }
     ctx.save(); ctx.clip(cell,'evenodd');
     // glassy sheen: bright near the top-left, slightly deeper translucent toward the rim
     const g=ctx.createRadialGradient(am.cx-am.R*0.4,am.cy-am.R*0.4,am.R*0.12, am.cx,am.cy,am.R*1.3);
-    g.addColorStop(0,'rgba(235,250,250,0.34)');
-    g.addColorStop(0.55,'rgba(210,240,240,0.06)');
-    g.addColorStop(1,'rgba(70,120,125,0.22)');
+    g.addColorStop(0,TC.sheen0);
+    g.addColorStop(0.55,TC.sheen1);
+    g.addColorStop(1,TC.deep);
     ctx.fillStyle=g; ctx.fillRect(am.cx-am.R*2.2,am.cy-am.R*2.2,am.R*4.4,am.R*4.4);
     ctx.restore();
 
     // bright glass membrane edge + faint inner highlight
-    ctx.lineWidth=2.2; ctx.strokeStyle='rgba(214,245,246,0.62)'; ctx.stroke(cell);
+    ctx.lineWidth=2.2; ctx.strokeStyle=TC.edge; ctx.stroke(cell);
     ctx.lineWidth=0.9; ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.stroke(cell);
 
     // ---- interior contents, clipped to the membrane ----
@@ -661,9 +742,22 @@
   }
   function drawNucleus(t){
     if(stage==='division'){
-      const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.splitSep, rr=lerp(20,17,clamp(stageT,0,1));
-      drawNucleusAt(am.splitCx-ca*s+am.nucleus.ox*0.3, am.splitCy-sa*s+am.nucleus.oy*0.3, t, rr);
-      drawNucleusAt(am.splitCx+ca*s-am.nucleus.ox*0.3, am.splitCy+sa*s-am.nucleus.oy*0.3, t, rr);
+      const ca=Math.cos(am.splitAng), sa=Math.sin(am.splitAng), s=am.nucSep;
+      const rr=lerp(20,17,clamp(stageT,0,1));
+      const n1x=am.splitCx-ca*s, n1y=am.splitCy-sa*s;
+      const n2x=am.splitCx+ca*s, n2y=am.splitCy+sa*s;
+      // faint "spindle" bridge while the two nuclei are still pulling apart (early division)
+      const bridge=1-smooth(am.R*0.18, am.R*0.6, s);
+      if(bridge>0.02){
+        ctx.save();
+        ctx.strokeStyle=`rgba(224,122,100,${0.5*bridge})`;
+        ctx.lineWidth=lerp(9,2,smooth(am.R*0.0,am.R*0.55,s));
+        ctx.lineCap='round';
+        ctx.beginPath();ctx.moveTo(n1x,n1y);ctx.lineTo(n2x,n2y);ctx.stroke();
+        ctx.restore();
+      }
+      drawNucleusAt(n1x, n1y, t, rr);
+      drawNucleusAt(n2x, n2y, t, rr);
     } else {
       drawNucleusAt(am.cx+am.nucleus.ox, am.cy+am.nucleus.oy, t);
     }
@@ -674,15 +768,16 @@
     for(const st of gh.sat){const a=st.a+t*st.sp, d=(st.d+0.06*Math.sin(t*st.w+st.ph))*R;
       blobs.push({x:gh.x+Math.cos(a)*d,y:gh.y+Math.sin(a)*d,s:R*R*st.s,neg:false});}
     const p=buildBlobPath(blobs);
+    const GC=tint(gh.hue!==undefined?gh.hue:174, gh.pig!==undefined?gh.pig:22);
     ctx.lineJoin='round';ctx.lineCap='round';
-    ctx.lineWidth=8;ctx.strokeStyle='rgba(150,205,205,0.10)';ctx.stroke(p);
-    ctx.fillStyle='rgba(178,214,210,0.24)';ctx.fill(p,'evenodd');
+    ctx.lineWidth=8;ctx.strokeStyle=GC.halo;ctx.stroke(p);
+    ctx.fillStyle=GC.fill;ctx.fill(p,'evenodd');
     ctx.save();ctx.clip(p,'evenodd');
     const g=ctx.createRadialGradient(gh.x-R*0.4,gh.y-R*0.4,R*0.12,gh.x,gh.y,R*1.25);
-    g.addColorStop(0,'rgba(235,250,250,0.30)');g.addColorStop(0.55,'rgba(210,240,240,0.05)');g.addColorStop(1,'rgba(70,120,125,0.2)');
+    g.addColorStop(0,GC.sheen0);g.addColorStop(0.55,GC.sheen1);g.addColorStop(1,GC.deep);
     ctx.fillStyle=g;ctx.fillRect(gh.x-R*2,gh.y-R*2,R*4,R*4);
     ctx.restore();
-    ctx.lineWidth=2;ctx.strokeStyle='rgba(214,245,246,0.55)';ctx.stroke(p);
+    ctx.lineWidth=2;ctx.strokeStyle=GC.edge;ctx.stroke(p);
     ctx.save();ctx.clip(p,'evenodd');
     drawNucleusAt(gh.x+am.nucleus.ox*0.4, gh.y+am.nucleus.oy*0.4, t, 18);
     ctx.restore();
