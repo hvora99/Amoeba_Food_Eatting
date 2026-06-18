@@ -261,6 +261,24 @@
         sp:(Math.random()-0.5)*0.12, w:0.35+Math.random()*0.6, ph:Math.random()*TAU});
     }
   }
+  // Radius-by-angle pseudopods for the resting/crawling outline. Each arm is one smooth bump on a
+  // polar radius curve, so the membrane is ALWAYS a single closed loop and can never fragment,
+  // however long or asymmetric the arms get. (Used for every stage except ingestion & fission,
+  // which still use the metaball field so the membrane can wrap fully around food / pinch in two.)
+  function makeArms(n){
+    const arms=[];
+    for(let i=0;i<n;i++) arms.push({
+      ang:i/n*TAU+(Math.random()-0.5)*0.5,   // spread around, jittered
+      amp:0.30+Math.random()*0.30,           // arm length (×R beyond the body)
+      wid:0.42+Math.random()*0.26,           // angular width of the arm
+      aSp:(Math.random()-0.5)*0.05,          // slow angular drift
+      aw:0.05+Math.random()*0.08,            // angular wander
+      lw:0.10+Math.random()*0.12,            // length pulsing
+      w:0.25+Math.random()*0.45, ph:Math.random()*TAU
+    });
+    return arms;
+  }
+  am.arms=makeArms(6);
   let ghosts=[];   // drifting daughter cells produced by fission
   for(let i=0;i<14;i++){
     const a=Math.random()*TAU, rr=Math.random()*0.72;
@@ -402,8 +420,40 @@
     for(let i=0;i<blobs.length;i++){const b=blobs[i],dx=x-b.x,dy=y-b.y,q=b.s/(dx*dx+dy*dy+120); v+=b.neg?-q:q;}
     return v;
   }
+  // ----- pseudopod outline: a single closed polar curve r(θ) = R·(base + Σ arm bumps) -----
+  function polarPath(cx,cy,R,arms,t,exAng,exAmp){
+    const STEPS=216, path=new Path2D();
+    for(let i=0;i<=STEPS;i++){
+      const th=i/STEPS*TAU;
+      let rr=0.94;                                   // body baseline (valleys between arms)
+      for(const a of arms){
+        const ca=a.ang + t*a.aSp + a.aw*Math.sin(t*a.w+a.ph);     // arm direction drifts
+        const amp=a.amp*(1+a.lw*Math.sin(t*a.w*0.7+a.ph));        // arm extends & retracts
+        const dd=angDiff(th,ca)/a.wid;
+        rr += amp*Math.exp(-dd*dd);                               // smooth pseudopod bump
+      }
+      if(exAmp){ const dd=angDiff(th,exAng)/0.5; rr += exAmp*Math.exp(-dd*dd); } // leading / egestion bulge
+      rr += 0.03*Math.sin(th*7+t*0.7) + 0.018*Math.sin(th*13-t*0.5); // fine organic ripple
+      const r=R*rr, x=cx+Math.cos(th)*r, y=cy+Math.sin(th)*r;
+      i?path.lineTo(x,y):path.moveTo(x,y);
+    }
+    path.closePath();
+    return path;
+  }
+  function buildPolarCell(t){
+    const R=am.R*(1+pulse);
+    let exAng, exAmp;
+    if(stage==='moving'){ exAng=am.moveAngle; exAmp=0.42; }                 // clear leading pseudopod
+    else if(stage==='egestion'){ exAng=egestAngle; exAmp=0.30*smooth(0.2,0.6,stageT)*(1-smooth(0.85,1,stageT)); }
+    return polarPath(am.cx,am.cy,R,am.arms,t,exAng,exAmp);
+  }
   // marching squares -> a Path2D of the iso-contour (handles parting, holes, rejoining)
-  function buildCellPath(t){ return buildBlobPath(cellBlobs(t)); }
+  // Engulfment (ingestion) and fission (division) need the membrane to wrap/pinch, so they keep the
+  // metaball field; every other stage uses the fragment-proof polar pseudopod outline above.
+  function buildCellPath(t){
+    if(stage==='ingestion' || stage==='division') return buildBlobPath(cellBlobs(t));
+    return buildPolarCell(t);
+  }
   function buildBlobPath(blobs){
     let mnx=1e9,mny=1e9,mxx=-1e9,mxy=-1e9;
     for(const b of blobs){ if(b.neg)continue; const rad=Math.sqrt(Math.max(b.s,1))+88;
@@ -596,7 +646,7 @@
         const childHue = mutated ? pickStrain() : am.hue;
         const childSat = mutated ? 55 : am.sat;
         ghosts.push({x:am.splitCx+ca*s, y:am.splitCy+sa*s, vx:ca*8, vy:sa*8,
-          R:104, sat:am.fieldSat.map(o=>({...o, ph:Math.random()*TAU})), no:Math.random()*9,
+          R:104, arms:makeArms(5), no:Math.random()*9,
           hue:childHue, pig:childSat, mutated});
         am.splitSep=0; am.nucSep=0;
         stage='idle';stageT=0;
@@ -762,12 +812,11 @@
       drawNucleusAt(am.cx+am.nucleus.ox, am.cy+am.nucleus.oy, t);
     }
   }
-  // a drifting daughter cell rendered with the same fluid membrane
+  // a drifting daughter cell rendered with the same fragment-proof pseudopod outline
   function drawGhost(gh,t){
-    const R=gh.R, blobs=[{x:gh.x,y:gh.y,s:R*R*0.92,neg:false}];
-    for(const st of gh.sat){const a=st.a+t*st.sp, d=(st.d+0.06*Math.sin(t*st.w+st.ph))*R;
-      blobs.push({x:gh.x+Math.cos(a)*d,y:gh.y+Math.sin(a)*d,s:R*R*st.s,neg:false});}
-    const p=buildBlobPath(blobs);
+    const R=gh.R;
+    const p=gh.arms ? polarPath(gh.x,gh.y,R,gh.arms,t)
+                    : buildBlobPath([{x:gh.x,y:gh.y,s:R*R*0.92,neg:false}]);
     const GC=tint(gh.hue!==undefined?gh.hue:174, gh.pig!==undefined?gh.pig:22);
     ctx.lineJoin='round';ctx.lineCap='round';
     ctx.lineWidth=8;ctx.strokeStyle=GC.halo;ctx.stroke(p);
